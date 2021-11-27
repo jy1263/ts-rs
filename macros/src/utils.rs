@@ -1,14 +1,14 @@
 use std::convert::TryFrom;
 
-use syn::Attribute;
-use syn::{Error, Result};
+use proc_macro2::Ident;
+use syn::{Attribute, Error, Result};
 
 macro_rules! syn_err {
     ($l:literal $(, $a:expr)*) => {
-        syn_err!(proc_macro2::Span::call_site(); $l $(, $a)*);
+        syn_err!(proc_macro2::Span::call_site(); $l $(, $a)*)
     };
     ($s:expr; $l:literal $(, $a:expr)*) => {
-        return Err(syn::Error::new($s, format!($l $(, $a)*)));
+        return Err(syn::Error::new($s, format!($l $(, $a)*)))
     };
 }
 
@@ -43,6 +43,16 @@ macro_rules! impl_parse {
             }
         }
     };
+}
+
+/// Converts a rust identifier to a typescript identifier.
+pub fn to_ts_ident(ident: &Ident) -> String {
+    let ident = ident.to_string();
+    if ident.starts_with("r#") {
+        ident.trim_start_matches("r#").to_owned()
+    } else {
+        ident
+    }
 }
 
 /// Parse all `#[ts(..)]` attributes from the given slice.
@@ -86,8 +96,7 @@ pub fn parse_serde_attrs<'a, A: TryFrom<&'a Attribute, Error = Error>>(
 
 #[cfg(feature = "serde-compat")]
 mod warning {
-    use std::fmt::Display;
-    use std::io::Write;
+    use std::{fmt::Display, io::Write};
 
     use termcolor::{BufferWriter, Color, ColorChoice, ColorSpec, WriteColor};
 

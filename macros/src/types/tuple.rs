@@ -1,25 +1,31 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Field, FieldsUnnamed, Result};
+use syn::{Field, FieldsUnnamed, Generics, Result};
 
-use crate::attr::{FieldAttr, Inflection};
-use crate::DerivedTS;
+use crate::{
+    attr::{FieldAttr, StructAttr},
+    deps::Dependencies,
+    types::generics::{format_generics, format_type},
+    DerivedTS,
+};
 
 pub(crate) fn tuple(
+    attr: &StructAttr,
     name: &str,
-    rename_all: &Option<Inflection>,
     fields: &FieldsUnnamed,
+    generics: &Generics,
 ) -> Result<DerivedTS> {
-    if rename_all.is_some() {
+    if attr.rename_all.is_some() {
         syn_err!("`rename_all` is not applicable to tuple structs");
     }
 
     let mut formatted_fields = Vec::new();
-    let mut dependencies = Vec::new();
+    let mut dependencies = Dependencies::default();
     for field in &fields.unnamed {
-        format_field(&mut formatted_fields, &mut dependencies, field)?;
+        format_field(&mut formatted_fields, &mut dependencies, field, generics)?;
     }
 
+    let generic_args = format_generics(&mut dependencies, generics);
     Ok(DerivedTS {
         inline: quote! {
             format!(
@@ -29,25 +35,25 @@ pub(crate) fn tuple(
         },
         decl: quote! {
             format!(
-                "type {} = {};",
+                "type {}{} = {};",
                 #name,
-                Self::inline(0)
+                #generic_args,
+                Self::inline()
             )
         },
         inline_flattened: None,
         name: name.to_owned(),
-        dependencies: quote! {
-            let mut dependencies = vec![];
-            #( #dependencies )*
-            dependencies
-        },
+        dependencies,
+        export: attr.export,
+        export_to: attr.export_to.clone(),
     })
 }
 
 fn format_field(
     formatted_fields: &mut Vec<TokenStream>,
-    dependencies: &mut Vec<TokenStream>,
+    dependencies: &mut Dependencies,
     field: &Field,
+    generics: &Generics,
 ) -> Result<()> {
     let ty = &field.ty;
     let FieldAttr {
@@ -55,6 +61,7 @@ fn format_field(
         rename,
         inline,
         skip,
+        optional,
         flatten,
     } = FieldAttr::from_attrs(&field.attrs)?;
 
@@ -64,29 +71,28 @@ fn format_field(
     if rename.is_some() {
         syn_err!("`rename` is not applicable to tuple structs")
     }
+    if optional {
+        syn_err!("`optional` is not applicable to tuple fields")
+    }
     if flatten {
         syn_err!("`flatten` is not applicable to tuple fields")
     }
 
     formatted_fields.push(match &type_override {
         Some(o) => quote!(#o.to_owned()),
-        None if inline => quote!(<#ty as ts_rs::TS>::inline(0)),
-        None => quote!(<#ty as ts_rs::TS>::name()),
+        None if inline => quote!(<#ty as ts_rs::TS>::inline()),
+        None => format_type(ty, dependencies, generics),
     });
 
-    dependencies.push(match (inline, &type_override) {
-        (_, Some(_)) => quote!(),
-        (false, _) => quote! {
-            if <#ty as ts_rs::TS>::transparent() {
-                dependencies.append(&mut <#ty as ts_rs::TS>::dependencies());
-            } else {
-                dependencies.push((std::any::TypeId::of::<#ty>(), <#ty as ts_rs::TS>::name()));
-            }
-        },
-        (true, _) => quote! {
-            dependencies.append(&mut (<#ty as ts_rs::TS>::dependencies()));
-        },
-    });
+    match (inline, &type_override) {
+        (_, Some(_)) => (),
+        (false, _) => {
+            dependencies.push_or_append_from(ty);
+        }
+        (true, _) => {
+            dependencies.append_from(ty);
+        }
+    };
 
     Ok(())
 }

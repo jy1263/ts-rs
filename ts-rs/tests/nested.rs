@@ -1,23 +1,25 @@
 #![allow(dead_code)]
 
+use std::{cell::Cell, rc::Rc, sync::Arc};
+
 use ts_rs::TS;
 
 #[derive(TS)]
 struct A {
-    x1: i32,
-    y1: i32,
+    x1: Arc<i32>,
+    y1: Cell<i32>,
 }
 
 #[derive(TS)]
 struct B {
-    a1: A,
+    a1: Box<A>,
     #[ts(inline)]
     a2: A,
 }
 
 #[derive(TS)]
 struct C {
-    b1: B,
+    b1: Rc<B>,
     #[ts(inline)]
     b2: B,
 }
@@ -25,35 +27,7 @@ struct C {
 #[test]
 fn test_nested() {
     assert_eq!(
-        C::inline(0),
-        "\
-{
-    b1: B,
-    b2: {
-        a1: A,
-        a2: {
-            x1: number,
-            y1: number,
-        },
-    },
-}"
-    );
-}
-
-#[test]
-fn test_indented() {
-    assert_eq!(
-        C::inline(2),
-        "\
-{
-            b1: B,
-            b2: {
-                a1: A,
-                a2: {
-                    x1: number,
-                    y1: number,
-                },
-            },
-        }"
+        C::inline(),
+        "{ b1: B, b2: { a1: A, a2: { x1: number, y1: number, }, }, }"
     );
 }

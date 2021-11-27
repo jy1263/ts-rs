@@ -2,8 +2,10 @@
 name = "example"
 version = "0.1.0"
 authors = ["Moritz Bischof <moritz.bischof@aleph-alpha.de>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-ts-rs = { path = "../ts-rs" }
-serde = { version = "1", features = ["derive"] }
+ts-rs = { path = "../ts-rs", features = ["serde-compat", "uuid-impl"] }
+serde = { version = "1", features = ["derive", "rc"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "0.8.2", features = ["v4", "serde"] }

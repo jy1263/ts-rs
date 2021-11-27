@@ -1,8 +1,7 @@
 use syn::{Attribute, Ident, Result};
 
-use crate::utils::parse_attrs;
-
 use super::parse_assign_str;
+use crate::utils::parse_attrs;
 
 #[derive(Default)]
 pub struct FieldAttr {
@@ -10,6 +9,7 @@ pub struct FieldAttr {
     pub rename: Option<String>,
     pub inline: bool,
     pub skip: bool,
+    pub optional: bool,
     pub flatten: bool,
 }
 
@@ -20,7 +20,7 @@ pub struct SerdeFieldAttr(FieldAttr);
 impl FieldAttr {
     pub fn from_attrs(attrs: &[Attribute]) -> Result<Self> {
         let mut result = Self::default();
-        parse_attrs(&attrs)?.for_each(|a| result.merge(a));
+        parse_attrs(attrs)?.for_each(|a| result.merge(a));
         #[cfg(feature = "serde-compat")]
         crate::utils::parse_serde_attrs::<SerdeFieldAttr>(attrs).for_each(|a| result.merge(a.0));
         Ok(result)
@@ -33,6 +33,7 @@ impl FieldAttr {
             rename,
             inline,
             skip,
+            optional,
             flatten,
         }: FieldAttr,
     ) {
@@ -40,6 +41,7 @@ impl FieldAttr {
         self.type_override = self.type_override.take().or(type_override);
         self.inline = self.inline || inline;
         self.skip = self.skip || skip;
+        self.optional |= optional;
         self.flatten |= flatten;
     }
 }
@@ -50,6 +52,7 @@ impl_parse! {
         "rename" => out.rename = Some(parse_assign_str(input)?),
         "inline" => out.inline = true,
         "skip" => out.skip = true,
+        "optional" => out.optional = true,
         "flatten" => out.flatten = true,
     }
 }
@@ -61,6 +64,7 @@ impl_parse! {
         "skip" => out.0.skip = true,
         "skip_serializing" => out.0.skip = true,
         "skip_deserializing" => out.0.skip = true,
+        "skip_serializing_if" => out.0.optional = parse_assign_str(input)? == *"Option::is_none",
         "flatten" => out.0.flatten = true,
         "default" => {
             if !input.is_empty() {

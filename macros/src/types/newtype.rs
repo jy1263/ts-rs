@@ -1,15 +1,20 @@
 use quote::quote;
-use syn::{FieldsUnnamed, Result};
+use syn::{FieldsUnnamed, Generics, Result};
 
-use crate::attr::{FieldAttr, Inflection};
-use crate::DerivedTS;
+use crate::{
+    attr::{FieldAttr, StructAttr},
+    deps::Dependencies,
+    types::generics::{format_generics, format_type},
+    DerivedTS,
+};
 
 pub(crate) fn newtype(
+    attr: &StructAttr,
     name: &str,
-    rename_all: &Option<Inflection>,
     fields: &FieldsUnnamed,
+    generics: &Generics,
 ) -> Result<DerivedTS> {
-    if rename_all.is_some() {
+    if attr.rename_all.is_some() {
         syn_err!("`rename_all` is not applicable to newtype structs");
     }
     let inner = fields.unnamed.first().unwrap();
@@ -18,38 +23,39 @@ pub(crate) fn newtype(
         rename: rename_inner,
         inline,
         skip,
+        optional,
         flatten,
     } = FieldAttr::from_attrs(&inner.attrs)?;
 
-    match (&rename_inner, skip, flatten) {
-        (Some(_), _, _) => syn_err!("`rename` is not applicable to newtype fields"),
-        (_, true, _) => syn_err!("`skip` is not applicable to newtype fields"),
-        (_, _, true) => syn_err!("`flatten` is not applicable to newtype fields"),
+    match (&rename_inner, skip, optional, flatten) {
+        (Some(_), ..) => syn_err!("`rename` is not applicable to newtype fields"),
+        (_, true, ..) => syn_err!("`skip` is not applicable to newtype fields"),
+        (_, _, true, ..) => syn_err!("`optional` is not applicable to newtype fields"),
+        (_, _, _, true) => syn_err!("`flatten` is not applicable to newtype fields"),
         _ => {}
     };
 
     let inner_ty = &inner.ty;
+    let mut dependencies = Dependencies::default();
+    match (inline, &type_override) {
+        (_, Some(_)) => (),
+        (true, _) => dependencies.append_from(inner_ty),
+        (false, _) => dependencies.push_or_append_from(inner_ty),
+    };
     let inline_def = match &type_override {
         Some(o) => quote!(#o),
-        None if inline => quote!(<#inner_ty as ts_rs::TS>::inline(0)),
-        None => quote!(<#inner_ty as ts_rs::TS>::name()),
+        None if inline => quote!(<#inner_ty as ts_rs::TS>::inline()),
+        None => format_type(inner_ty, &mut dependencies, generics),
     };
+
+    let generic_args = format_generics(&mut dependencies, generics);
     Ok(DerivedTS {
-        decl: quote!(format!("type {} = {};", #name, #inline_def)),
+        decl: quote!(format!("type {}{} = {};", #name, #generic_args, #inline_def)),
         inline: inline_def,
         inline_flattened: None,
         name: name.to_owned(),
-        dependencies: match (inline, &type_override) {
-            (_, Some(_)) => quote!(vec![]),
-            (true, _) => quote! {
-                <#inner_ty as ts_rs::TS>::dependencies()
-            },
-            (false, _) => quote! {
-                match <#inner_ty as ts_rs::TS>::transparent() {
-                    true => <#inner_ty as ts_rs::TS>::dependencies(),
-                    false => vec![(std::any::TypeId::of::<#inner_ty>(), <#inner_ty as ts_rs::TS>::name())]
-                }
-            },
-        },
+        dependencies,
+        export: attr.export,
+        export_to: attr.export_to.clone(),
     })
 }
